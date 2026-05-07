@@ -1,0 +1,4 @@
+venv/
+.venv/
+app/data/processed/
+app/data/dataset_WWW_Checkins_anonymized.txt
