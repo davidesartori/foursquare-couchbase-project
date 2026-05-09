@@ -1,4 +1,6 @@
 venv/
 .venv/
 app/data/processed/
-app/data/dataset_WWW_Checkins_anonymized.txt
+app/scripts/reduce_dataset.py
+.DS_Store
+app/data/.DS_Store
