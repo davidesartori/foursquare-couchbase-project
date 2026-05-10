@@ -4,3 +4,6 @@ app/data/processed/
 app/scripts/reduce_dataset.py
 .DS_Store
 app/data/.DS_Store
+__pycache__/
+*.pyc
+*.pyo

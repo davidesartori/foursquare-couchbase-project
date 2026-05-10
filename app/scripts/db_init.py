@@ -1,16 +1,12 @@
 """Script to initialize the Couchbase database with users, venues, and friendships data."""
 import app.domain.models as models
+import app.config as config
+from app.repositories.user_repository import UserRepository
+from app.repositories.venue_repository import VenueRepository
+from app.repositories.friendship_repository import FriendshipRepository
 from pathlib import Path
 from datetime import datetime, timedelta
 import random
-import time
-from couchbase.cluster import Cluster
-from couchbase.auth import PasswordAuthenticator
-from couchbase.options import ClusterOptions
-from couchbase.management.buckets import CreateBucketSettings
-from couchbase.management.collections import CollectionSpec
-from couchbase.exceptions import BucketNotFoundException
-
 
 def generate_random_birth_date():
     """Generate a random birth date between 60 years before 2012 and 7 years before 2012."""
@@ -35,111 +31,10 @@ def generate_random_new_friendship_date():
     return (start + (end - start) * random.random()).date()
 
 
-def insert_or_update_user(collection, user):
-    """Insert a new user document or update an existing one.
-    """
-
-    checkins = []
-
-    for checkin in user.checkins:
-        checkins.append({
-            "timestamp": checkin.timestamp.isoformat(),
-            "offset": checkin.offset,
-            "venueId": checkin.venueId,
-            "utcTime": checkin.utcTime
-        })
-
-    collection.upsert(
-        f"user::{user.id}",
-        {
-            "id": user.id,
-            "name": "",
-            "surname": "",
-            "birthDate": str(user.birthDate),
-            "country": user.country.model_dump(exclude_none=True),
-            "checkins": checkins
-        }
-    )
-
-
-def insert_or_update_venue(collection, venue):
-    """Insert a new venue document or update an existing one.
-    """
-    collection.upsert(
-        f"venue::{venue.id}",
-        {
-            "id": venue.id,
-            "name": venue.name,
-            "category": venue.category.model_dump(exclude_none=True),
-            "latitude": venue.latitude,
-            "longitude": venue.longitude,
-            "country": venue.country.model_dump(exclude_none=True),
-            "majorId": venue.majorId
-        }
-    )
-
-def insert_or_update_friendship(collection, friendship):
-    """Insert a new friendship document or update an existing one.
-    """
-    collection.upsert(
-        f"friendship::{friendship.user1}::{friendship.user2}",
-        {
-            "user1": friendship.user1,
-            "user2": friendship.user2,
-            "status": friendship.status.value,
-            "friendSince": friendship.friendSince.isoformat()
-        }
-    )
-
-
-if __name__ == "__main__":
-    USERS_COLLECTION = "users"
-    VENUES_COLLECTION = "venues"
-    FRIENDSHIPS_COLLECTION = "friendships"
-
-    CHECKINS_FILE = "dataset_WWW_Checkins_anonymized.txt"
-    VENUES_FILE = "raw_POIs.txt"
-    FRIENDSHIPS_FILES = ["dataset_WWW_friendship_old.txt", "dataset_WWW_friendship_new.txt"]
-
-    users = {}
-    venues = {}
-    friendships = []
-
-    cluster = Cluster(
-        "couchbase://localhost",
-        ClusterOptions(
-            PasswordAuthenticator("administrator", "administrator")
-        )
-    )
-
-    cluster.wait_until_ready(timedelta(seconds=5))
-
-    try:
-        bucket = cluster.bucket("foursquare")
-    except BucketNotFoundException as e:
-        bucket_manager = cluster.buckets()
-
-        bucket_manager.create_bucket(
-            CreateBucketSettings(
-                name="foursquare",
-                bucket_type="couchbase",
-                ram_quota_mb=1024
-            )
-        )
-
-        time.sleep(5)
-
-        bucket = cluster.bucket("foursquare")
-
-    collection_manager = bucket.collections()
-    existing_collections = [c.name for scope in collection_manager.get_all_scopes()
-                            for c in scope.collections]
-
-    BASE_DIR = Path(__file__).parent.parent
-    DATA_DIR = BASE_DIR / "data"
-
-    print("Processing check-ins...")
-    with open(DATA_DIR / CHECKINS_FILE, encoding="utf-8") as checkins_in:
+def process_checkins(path, user_dict, venue_dict):
+    """ Process check-ins from the file specified in the configuration and
+    populate the user_dict and venue_dict. """
+    with open(path / config.CHECKINS_FILE, encoding="utf-8") as checkins_in:
         for i, checkin_line in enumerate(checkins_in):
             checkin = checkin_line.strip().split("\t")
             user_id = int(checkin[0])
@@ -157,8 +52,8 @@ if __name__ == "__main__":
 
             utc_time = checkin[2]
 
-            if str(user_id) in users:
-                user_instance = users[str(user_id)]
+            if str(user_id) in user_dict:
+                user_instance = user_dict[str(user_id)]
                 user_instance.checkins.append(models.Checkin(
                     timestamp=timestamp, offset=offset, venueId=venue_id, utcTime=utc_time))
             else:
@@ -167,18 +62,18 @@ if __name__ == "__main__":
                 user_instance = models.User(id=user_id, name="", surname="",
                                             birthDate=generate_random_birth_date(),
                                             country=models.Country(code="US",
-                                                                name="United States of America"),
+                                                                   name="United States of America"),
                                             checkins=[checkin_instance])
 
-                users[str(user_id)] = user_instance
+                user_dict[str(user_id)] = user_instance
 
-            if venue_id not in venues:
-                venues[venue_id] = None
+            if venue_id not in venue_dict:
+                venue_dict[venue_id] = None
 
-        print("Check-in processing complete")
 
-    print("Processing venues...")
-    with open(DATA_DIR / VENUES_FILE, encoding="utf-8") as venues_in:
+def process_venues(path, venue_dict):
+    """ Process venues from the file specified in the configuration and populate the venue_dict. """
+    with open(path / config.VENUES_FILE, encoding="utf-8") as venues_in:
         for i, venue_line in enumerate(venues_in):
             venue = venue_line.strip().split("\t")
             venue_name = venue[0]
@@ -197,14 +92,15 @@ if __name__ == "__main__":
                 country=models.Country(code=country, name=country),
                 majorId=0)
 
-            if venue_name in venues:
-                venues[venue_name] = venue_instance
+            if venue_name in venue_dict:
+                venue_dict[venue_name] = venue_instance
 
-    print("Venue processing complete")
 
-    print("Processing friendships...")
-    for friendship_file in FRIENDSHIPS_FILES:
-        with open(DATA_DIR / friendship_file, encoding="utf-8") as friendships_in:
+def process_friendships_from_files(path, friendships):
+    """ Process friendships from the files specified in the configuration and 
+    append them to the friendships list. """
+    for friendship_file in config.FRIENDSHIPS_FILES:
+        with open(path / friendship_file, encoding="utf-8") as friendships_in:
             for i, friendship_line in enumerate(friendships_in):
                 friendship = friendship_line.strip().split("\t")
                 user1 = int(friendship[0])
@@ -219,48 +115,57 @@ if __name__ == "__main__":
                     friendSince=friend_since
                 ))
 
+
+def main():
+    """ Main function to initialize the Couchbase database with users, venues,
+    and friendships data."""
+    user_repository = UserRepository()
+    venue_repository = VenueRepository()
+    friendship_repository = FriendshipRepository()
+
+    users = {}
+    venues = {}
+    friendships = []
+
+    BASE_DIR = Path(__file__).parent.parent
+    DATA_DIR = BASE_DIR / "data"
+
+    print("Processing check-ins...")
+    process_checkins(DATA_DIR, users, venues)
+    print("Check-in processing complete")
+
+    print("Processing venues...")
+    process_venues(DATA_DIR, venues)
+
+    print("Venue processing complete")
+
+    print("Processing friendships...")
+    process_friendships_from_files(DATA_DIR, friendships)
     print("Friendship processing complete")
 
     print("Inserting users into Couchbase...")
 
-    if USERS_COLLECTION not in existing_collections:
-        collection_manager.create_collection(
-            CollectionSpec(USERS_COLLECTION, scope_name="_default"))
-        time.sleep(1)
-
-    users_collection = bucket.collection(USERS_COLLECTION)
-
     for user in users.values():
         if user is not None:
-            insert_or_update_user(users_collection, user)
+            user_repository.upsert(user)
 
     print("Done!")
 
     print("Inserting venues into Couchbase...")
 
-    if VENUES_COLLECTION not in existing_collections:
-        collection_manager.create_collection(CollectionSpec(VENUES_COLLECTION,
-                                                            scope_name="_default"))
-        time.sleep(1)
-
-    venues_collection = bucket.collection(VENUES_COLLECTION)
-
     for venue in venues.values():
         if venue is not None:
-            insert_or_update_venue(venues_collection, venue)
+            venue_repository.upsert(venue)
 
     print("Done!")
 
     print("Inserting friendships into Couchbase...")
 
-    if FRIENDSHIPS_COLLECTION not in existing_collections:
-        collection_manager.create_collection(
-            CollectionSpec(FRIENDSHIPS_COLLECTION, scope_name="_default"))
-        time.sleep(1)
-
-    friendships_collection = bucket.collection(FRIENDSHIPS_COLLECTION)
-
     for friendship in friendships:
-        insert_or_update_friendship(friendships_collection, friendship)
+        friendship_repository.upsert(friendship)
 
     print("Done!")
+
+
+if __name__ == "__main__":
+    main()
