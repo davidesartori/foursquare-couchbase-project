@@ -3,10 +3,12 @@ import app.domain.models as models
 import app.config as config
 from app.repositories.user_repository import UserRepository
 from app.repositories.venue_repository import VenueRepository
-from app.repositories.friendship_repository import FriendshipRepository
+from app.repositories.checkin_repository import CheckinRepository
+from app.services.db_service import CouchbaseService
 from pathlib import Path
 from datetime import datetime, timedelta
 import random
+
 
 def generate_random_birth_date():
     """Generate a random birth date between 60 years before 2012 and 7 years before 2012."""
@@ -31,7 +33,7 @@ def generate_random_new_friendship_date():
     return (start + (end - start) * random.random()).date()
 
 
-def process_checkins(path, user_dict, venue_dict):
+def process_checkins(path, checkins_dict, user_dict, venue_dict):
     """ Process check-ins from the file specified in the configuration and
     populate the user_dict and venue_dict. """
     with open(path / config.CHECKINS_FILE, encoding="utf-8") as checkins_in:
@@ -50,31 +52,35 @@ def process_checkins(path, user_dict, venue_dict):
             offset = int(checkin[3])
             venue_id = checkin[1]
 
-            utc_time = checkin[2]
-
-            if str(user_id) in user_dict:
-                user_instance = user_dict[str(user_id)]
-                user_instance.checkins.append(models.Checkin(
-                    timestamp=timestamp, offset=offset, venueId=venue_id, utcTime=utc_time))
+            if venue_id in venue_dict:
+                venue_instance = venue_dict[venue_id]
             else:
-                checkin_instance = models.Checkin(
-                    timestamp=timestamp, offset=offset, venueId=venue_id, utcTime=utc_time)
+                venue_instance = models.Venue(id="", name="Unknown Venue",
+                                              category=models.VenueCategory(id="unknown",
+                                                                            name="Unknown"),
+                                              location=models.Location.get_coordinates_list(
+                                                  0.0, 0.0),
+                                              country=models.Country(code="XX", name="Unknown"))
+
+            checkin_instance = models.Checkin(
+                id=i, userId=user_id, venue=venue_instance, utcTimestamp=timestamp, offset=offset)
+
+            checkins_dict[i] = checkin_instance
+
+            if str(user_id) not in user_dict:
                 user_instance = models.User(id=user_id, name="", surname="",
                                             birthDate=generate_random_birth_date(),
                                             country=models.Country(code="US",
                                                                    name="United States of America"),
-                                            checkins=[checkin_instance])
+                                                                   friends=[])
 
                 user_dict[str(user_id)] = user_instance
-
-            if venue_id not in venue_dict:
-                venue_dict[venue_id] = None
 
 
 def process_venues(path, venue_dict):
     """ Process venues from the file specified in the configuration and populate the venue_dict. """
     with open(path / config.VENUES_FILE, encoding="utf-8") as venues_in:
-        for i, venue_line in enumerate(venues_in):
+        for _, venue_line in enumerate(venues_in):
             venue = venue_line.strip().split("\t")
             venue_name = venue[0]
             latitude = float(venue[1])
@@ -85,18 +91,16 @@ def process_venues(path, venue_dict):
             venue_instance = models.Venue(
                 id=venue_name,
                 name=venue_name,
+                location=models.Location.get_coordinates_list(
+                    latitude, longitude),
                 category=models.VenueCategory(id="".join(category.lower().split(' ')),
                                               name=category),
-                latitude=latitude,
-                longitude=longitude,
-                country=models.Country(code=country, name=country),
-                majorId=0)
+                country=models.Country(code=country, name=country))
 
-            if venue_name in venue_dict:
-                venue_dict[venue_name] = venue_instance
+            venue_dict[venue_name] = venue_instance
 
 
-def process_friendships_from_files(path, friendships):
+def process_friendships_from_files(path, user_dict):
     """ Process friendships from the files specified in the configuration and 
     append them to the friendships list. """
     for friendship_file in config.FRIENDSHIPS_FILES:
@@ -106,41 +110,44 @@ def process_friendships_from_files(path, friendships):
                 user1 = int(friendship[0])
                 user2 = int(friendship[1])
                 status = models.FriendshipStatus("accepted")
-                friend_since = datetime.now()
+                friend_since = generate_random_old_friendship_date(
+                ) if i == 0 else generate_random_new_friendship_date()
 
-                friendships.append(models.Friendship(
-                    user1=user1,
-                    user2=user2,
-                    status=status,
-                    friendSince=friend_since
-                ))
+                if str(user1) in user_dict and str(user2) in user_dict:
+                    friendship_instance = models.Friendship(
+                        friendId=user2, status=status, friendSince=friend_since)
+                    user_dict[str(user1)].friends.append(friendship_instance)
+
+                    friendship_instance = models.Friendship(
+                        friendId=user1, status=status, friendSince=friend_since)
+                    user_dict[str(user2)].friends.append(friendship_instance)
 
 
 def main():
     """ Main function to initialize the Couchbase database with users, venues,
     and friendships data."""
-    user_repository = UserRepository()
-    venue_repository = VenueRepository()
-    friendship_repository = FriendshipRepository()
+    db_service = CouchbaseService()
+    user_repository = UserRepository(db_service)
+    venue_repository = VenueRepository(db_service)
+    checkin_repository = CheckinRepository(db_service)
 
     users = {}
     venues = {}
-    friendships = []
+    checkins = {}
 
     BASE_DIR = Path(__file__).parent.parent
     DATA_DIR = BASE_DIR / "data"
 
-    print("Processing check-ins...")
-    process_checkins(DATA_DIR, users, venues)
-    print("Check-in processing complete")
-
     print("Processing venues...")
     process_venues(DATA_DIR, venues)
-
     print("Venue processing complete")
 
+    print("Processing check-ins...")
+    process_checkins(DATA_DIR, checkins, users, venues)
+    print("Check-in processing complete")
+
     print("Processing friendships...")
-    process_friendships_from_files(DATA_DIR, friendships)
+    process_friendships_from_files(DATA_DIR, users)
     print("Friendship processing complete")
 
     print("Inserting users into Couchbase...")
@@ -154,17 +161,18 @@ def main():
     print("Inserting venues into Couchbase...")
 
     for venue in venues.values():
-        if venue is not None:
-            venue_repository.upsert(venue)
+        venue_repository.upsert(venue)
 
     print("Done!")
 
-    print("Inserting friendships into Couchbase...")
+    print("Inserting check-ins into Couchbase...")
 
-    for friendship in friendships:
-        friendship_repository.upsert(friendship)
+    for checkin in checkins.values():
+        checkin_repository.upsert(checkin)
 
     print("Done!")
+
+    db_service.close()
 
 
 if __name__ == "__main__":

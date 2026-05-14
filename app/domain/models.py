@@ -12,22 +12,40 @@ class Country(BaseModel):
     name: str
 
 
+class VenueCategory(BaseModel):
+    """Represents a category of a venue."""
+    id: str
+    name: str
+
+
+class Location(BaseModel):
+    """Represents a geographical location using GeoJSON format."""
+    type: str = "Point"
+    coordinates: list[float]
+
+    @classmethod
+    def get_coordinates_list(cls, latitude: float, longitude: float) -> "Location":
+        """Helper method to create a Location instance from latitude and longitude."""
+        return cls(coordinates=[longitude, latitude])
+
+
+class Venue(BaseModel):
+    """Represents a venue where users can check in."""
+    id: str
+    name: str
+    category: VenueCategory
+    location: Location
+    country: Country
+
+
 class Checkin(BaseModel):
     """Represents a check-in event by a user at a venue."""
-    timestamp: datetime
-    offset: int
-    venueId: str
-    utcTime: str | None
-
-
-class User(BaseModel):
-    """Represents a user in the system."""
     id: int
-    name: str
-    surname: str
-    birthDate: date
-    country: Country
-    checkins: List[Checkin]
+    userId: int
+    venue: Venue | None
+    utcTimestamp: datetime
+    offset: int
+    utcTimeStr: str | None = None
 
 
 class FriendshipStatus(Enum):
@@ -40,24 +58,16 @@ class FriendshipStatus(Enum):
 
 class Friendship(BaseModel):
     """Represents a friendship between two users."""
-    user1: int
-    user2: int
+    friendId: int
     status: FriendshipStatus
     friendSince: datetime
 
 
-class VenueCategory(BaseModel):
-    """Represents a category of a venue."""
-    id: str
+class User(BaseModel):
+    """Represents a user in the system."""
+    id: int
     name: str
-
-
-class Venue(BaseModel):
-    """Represents a venue where users can check in."""
-    id: str
-    name: str
-    category: VenueCategory
-    latitude: float
-    longitude: float
+    surname: str
+    birthDate: date | None
     country: Country
-    majorId: int
+    friends: List[Friendship]

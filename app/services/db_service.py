@@ -4,7 +4,7 @@ import time
 from couchbase.cluster import Cluster, timedelta
 from couchbase.options import ClusterOptions
 from couchbase.auth import PasswordAuthenticator
-from couchbase.exceptions import BucketNotFoundException
+from couchbase.exceptions import BucketNotFoundException, CouchbaseException
 from couchbase.management.buckets import CreateBucketSettings
 from couchbase.management.collections import CollectionSpec
 
@@ -13,14 +13,26 @@ class CouchbaseService:
     """Service for managing the connection to the Couchbase database."""
 
     def __init__(self):
-        self.cluster = Cluster(
-            config.DB_HOST,
-            ClusterOptions(
-                PasswordAuthenticator(config.DB_USER, config.DB_PASSWORD)
-            )
-        )
+        for _ in range(10):
+            print("Attempting to connect to Couchbase cluster...")
+            try:
+                self.cluster = Cluster(
+                    config.DB_HOST,
+                    ClusterOptions(
+                        PasswordAuthenticator(config.DB_USER, config.DB_PASSWORD)
+                    )
+                )
 
-        self.cluster.wait_until_ready(timedelta(seconds=5))
+                self.cluster.wait_until_ready(timedelta(seconds=30))
+
+                print("Connected!")
+                break
+            except CouchbaseException:
+                time.sleep(10)
+
+    def close(self):
+        """Close the connection to the Couchbase cluster."""
+        self.cluster.close()
 
 
     def get_bucket(self, bucket_name):
@@ -60,7 +72,3 @@ class CouchbaseService:
         collection = bucket.collection(collection_name)
 
         return collection
-
-
-# single shared instance
-db_service = CouchbaseService()
