@@ -1,13 +1,18 @@
 """Script to initialize the Couchbase database with users, venues, and friendships data."""
 import app.domain.models as models
-import app.config as config
+import app.config.config as config
 from app.repositories.user_repository import UserRepository
 from app.repositories.venue_repository import VenueRepository
 from app.repositories.checkin_repository import CheckinRepository
 from app.services.db_service import CouchbaseService
+from app.config.logging_config import setup_logging
 from pathlib import Path
 from datetime import datetime, timedelta
 import random
+from tqdm import tqdm
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def generate_random_birth_date():
@@ -37,7 +42,7 @@ def process_checkins(path, checkins_dict, user_dict, venue_dict):
     """ Process check-ins from the file specified in the configuration and
     populate the user_dict and venue_dict. """
     with open(path / config.CHECKINS_FILE, encoding="utf-8") as checkins_in:
-        for i, checkin_line in enumerate(checkins_in):
+        for i, checkin_line in enumerate(tqdm(checkins_in, desc="Creating Check-ins")):
             checkin = checkin_line.strip().split("\t")
             user_id = int(checkin[0])
 
@@ -45,8 +50,7 @@ def process_checkins(path, checkins_dict, user_dict, venue_dict):
                 timestamp = datetime.strptime(
                     checkin[2], "%a %b %d %H:%M:%S %z %Y")
             except ValueError:
-                print(
-                    f"Error parsing timestamp for checkin: {checkin_line}")
+                logger.error("Error parsing timestamp for checkin: %s", checkin_line)
                 continue
 
             offset = int(checkin[3])
@@ -80,7 +84,7 @@ def process_checkins(path, checkins_dict, user_dict, venue_dict):
 def process_venues(path, venue_dict):
     """ Process venues from the file specified in the configuration and populate the venue_dict. """
     with open(path / config.VENUES_FILE, encoding="utf-8") as venues_in:
-        for _, venue_line in enumerate(venues_in):
+        for venue_line in tqdm(venues_in, desc="Creating Venues"):
             venue = venue_line.strip().split("\t")
             venue_name = venue[0]
             latitude = float(venue[1])
@@ -105,7 +109,7 @@ def process_friendships_from_files(path, user_dict):
     append them to the friendships list. """
     for friendship_file in config.FRIENDSHIPS_FILES:
         with open(path / friendship_file, encoding="utf-8") as friendships_in:
-            for i, friendship_line in enumerate(friendships_in):
+            for i, friendship_line in enumerate(tqdm(friendships_in, desc="Creating Friendships")):
                 friendship = friendship_line.strip().split("\t")
                 user1 = int(friendship[0])
                 user2 = int(friendship[1])
@@ -126,6 +130,9 @@ def process_friendships_from_files(path, user_dict):
 def main():
     """ Main function to initialize the Couchbase database with users, venues,
     and friendships data."""
+
+    setup_logging()
+
     db_service = CouchbaseService()
     user_repository = UserRepository(db_service)
     venue_repository = VenueRepository(db_service)
@@ -138,39 +145,33 @@ def main():
     BASE_DIR = Path(__file__).parent.parent
     DATA_DIR = BASE_DIR / "data"
 
-    print("Processing venues...")
+    logger.info("Processing venues...")
     process_venues(DATA_DIR, venues)
-    print("Venue processing complete")
+    logger.info("Venue processing complete")
 
-    print("Processing check-ins...")
+    logger.info("Processing check-ins...")
     process_checkins(DATA_DIR, checkins, users, venues)
-    print("Check-in processing complete")
+    logger.info("Check-in processing complete")
 
-    print("Processing friendships...")
+    logger.info("Processing friendships...")
     process_friendships_from_files(DATA_DIR, users)
-    print("Friendship processing complete")
+    logger.info("Friendship processing complete")
 
-    print("Inserting users into Couchbase...")
-
-    for user in users.values():
+    logger.info("Inserting data into Couchbase...")
+    logger.info("Inserting users into Couchbase...")
+    for user in tqdm(users.values(), desc="Users"):
         if user is not None:
             user_repository.upsert(user)
 
-    print("Done!")
-
-    print("Inserting venues into Couchbase...")
-
-    for venue in venues.values():
+    logger.info("Inserting venues into Couchbase...")
+    for venue in tqdm(venues.values(), desc="Venues"):
         venue_repository.upsert(venue)
 
-    print("Done!")
-
-    print("Inserting check-ins into Couchbase...")
-
-    for checkin in checkins.values():
+    logger.info("Inserting check-ins into Couchbase...")
+    for checkin in tqdm(checkins.values(), desc="Check-ins"):
         checkin_repository.upsert(checkin)
 
-    print("Done!")
+    logger.info("Done!")
 
     db_service.close()
 

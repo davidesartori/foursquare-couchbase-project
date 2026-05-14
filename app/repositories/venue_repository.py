@@ -1,5 +1,5 @@
 """Repository for managing venues in the Couchbase database."""
-import app.config as config
+import app.config.config as config
 from app.domain.models import Venue
 
 

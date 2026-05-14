@@ -1,5 +1,5 @@
 """Service for managing the connection to the Couchbase database."""
-import app.config as config
+import app.config.config as config
 import time
 from couchbase.cluster import Cluster, timedelta
 from couchbase.options import ClusterOptions
@@ -7,6 +7,9 @@ from couchbase.auth import PasswordAuthenticator
 from couchbase.exceptions import BucketNotFoundException, CouchbaseException
 from couchbase.management.buckets import CreateBucketSettings
 from couchbase.management.collections import CollectionSpec
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CouchbaseService:
@@ -14,7 +17,7 @@ class CouchbaseService:
 
     def __init__(self):
         for _ in range(10):
-            print("Attempting to connect to Couchbase cluster...")
+            logger.info("Attempting to connect to Couchbase cluster...")
             try:
                 self.cluster = Cluster(
                     config.DB_HOST,
@@ -25,13 +28,16 @@ class CouchbaseService:
 
                 self.cluster.wait_until_ready(timedelta(seconds=30))
 
-                print("Connected!")
+                logger.info("Connected!")
                 break
             except CouchbaseException:
+                logger.warning("Connection failed, retrying in 10 seconds...")
                 time.sleep(10)
+
 
     def close(self):
         """Close the connection to the Couchbase cluster."""
+        logger.info("Closing Couchbase connection...")
         self.cluster.close()
 
 
