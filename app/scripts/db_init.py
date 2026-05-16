@@ -1,4 +1,6 @@
 """Script to initialize the Couchbase database with users, venues, and friendships data."""
+import sys
+
 import app.domain.models as models
 import app.config.config as config
 from app.repositories.user_repository import UserRepository
@@ -6,6 +8,7 @@ from app.repositories.venue_repository import VenueRepository
 from app.repositories.checkin_repository import CheckinRepository
 from app.services.db_service import CouchbaseService
 from app.config.logging_config import setup_logging
+from couchbase.exceptions import CouchbaseException
 from pathlib import Path
 from datetime import datetime, timedelta
 import random
@@ -133,7 +136,12 @@ def main():
 
     setup_logging()
 
-    db_service = CouchbaseService()
+    try:
+        db_service = CouchbaseService()
+    except CouchbaseException:
+        logger.error("Unable to connect to Couchbase cluster")
+        sys.exit(1)
+
     user_repository = UserRepository(db_service)
     venue_repository = VenueRepository(db_service)
     checkin_repository = CheckinRepository(db_service)

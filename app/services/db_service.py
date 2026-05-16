@@ -15,14 +15,23 @@ logger = logging.getLogger(__name__)
 class CouchbaseService:
     """Service for managing the connection to the Couchbase database."""
 
+
     def __init__(self):
-        for _ in range(10):
-            logger.info("Attempting to connect to Couchbase cluster...")
+        max_retries = 10
+        for i in range(max_retries):
+            if i == 0:
+                logger.info("Connecting to Couchbase cluster...")
+            else:
+                logger.info(
+                    "Attempting to connect to Couchbase cluster... Attempt %d of %d...",
+                    i + 1, max_retries)
+
             try:
                 self.cluster = Cluster(
                     config.DB_HOST,
                     ClusterOptions(
-                        PasswordAuthenticator(config.DB_USER, config.DB_PASSWORD)
+                        PasswordAuthenticator(
+                            config.DB_USER, config.DB_PASSWORD)
                     )
                 )
 
@@ -31,13 +40,17 @@ class CouchbaseService:
                 logger.info("Connected!")
                 break
             except CouchbaseException:
+                if max_retries - 1 == i:
+                    logger.error("Failed to connect to Couchbase cluster")
+                    raise
+
                 logger.warning("Connection failed, retrying in 10 seconds...")
                 time.sleep(10)
 
 
     def close(self):
         """Close the connection to the Couchbase cluster."""
-        logger.info("Closing Couchbase connection...")
+        logger.info("Closing Couchbase connection")
         self.cluster.close()
 
 
@@ -62,7 +75,6 @@ class CouchbaseService:
 
         return bucket
 
-
     def get_collection(self, bucket_name, collection_name):
         """Get a reference to a Couchbase collection, creating it if it doesn't exist."""
         bucket = self.get_bucket(bucket_name)
@@ -73,7 +85,7 @@ class CouchbaseService:
         if collection_name not in existing_collections:
             collection_manager.create_collection(
                 CollectionSpec(collection_name, scope_name="_default"))
-            time.sleep(1)
+            time.sleep(2)
 
         collection = bucket.collection(collection_name)
 
