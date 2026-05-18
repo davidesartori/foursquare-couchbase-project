@@ -2,7 +2,7 @@
 import app.config.config as config
 import time
 from couchbase.cluster import Cluster, timedelta
-from couchbase.options import ClusterOptions
+from couchbase.options import ClusterOptions, QueryOptions
 from couchbase.auth import PasswordAuthenticator
 from couchbase.exceptions import BucketNotFoundException, CouchbaseException
 from couchbase.management.buckets import CreateBucketSettings
@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 class CouchbaseService:
     """Service for managing the connection to the Couchbase database."""
-
 
     def __init__(self):
         max_retries = 10
@@ -31,7 +30,8 @@ class CouchbaseService:
                     config.DB_HOST,
                     ClusterOptions(
                         PasswordAuthenticator(
-                            config.DB_USER, config.DB_PASSWORD)
+                            config.DB_USER, config.DB_PASSWORD),
+                            enable_metrics=False
                     )
                 )
 
@@ -47,12 +47,10 @@ class CouchbaseService:
                 logger.warning("Connection failed, retrying in 10 seconds...")
                 time.sleep(10)
 
-
     def close(self):
         """Close the connection to the Couchbase cluster."""
         logger.info("Closing Couchbase connection")
         self.cluster.close()
-
 
     def get_bucket(self, bucket_name):
         """Get a reference to a Couchbase bucket, creating it if it doesn't exist."""
@@ -90,3 +88,21 @@ class CouchbaseService:
         collection = bucket.collection(collection_name)
 
         return collection
+
+    def get_cluster(self):
+        """Get the Couchbase cluster instance."""
+        return self.cluster
+
+    def execute_query(self, query):
+        """Execute a N1QL query against the Couchbase cluster."""
+        logger.debug("Executing query: %s", query)
+        return self.cluster.query(query, options=QueryOptions(metrics=False)).execute()
+
+    def create_secondary_index(self, collection_name, index_name, fields):
+        """ Create a secondary index on the specified fields for the given collection. """
+        query = f"""
+        CREATE INDEX `{index_name}`
+        ON `{config.DB_BUCKET}`.`{config.DB_SCOPE}`.`{collection_name}`
+        ({','.join(fields)}) WITH {{"defer_build": true}};
+        """
+        self.execute_query(query)

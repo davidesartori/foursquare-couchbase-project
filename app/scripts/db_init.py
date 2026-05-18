@@ -1,6 +1,5 @@
 """Script to initialize the Couchbase database with users, venues, and friendships data."""
 import sys
-
 import app.domain.models as models
 import app.config.config as config
 from app.repositories.user_repository import UserRepository
@@ -8,12 +7,15 @@ from app.repositories.venue_repository import VenueRepository
 from app.repositories.checkin_repository import CheckinRepository
 from app.services.db_service import CouchbaseService
 from app.config.logging_config import setup_logging
+from app.db.index_manager import IndexManager
 from couchbase.exceptions import CouchbaseException
 from pathlib import Path
 from datetime import datetime, timedelta
 import random
 from tqdm import tqdm
+from rich.console import Console
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,7 @@ def main():
     and friendships data."""
 
     setup_logging()
+    console = Console()
 
     try:
         db_service = CouchbaseService()
@@ -181,6 +184,22 @@ def main():
 
     logger.info("Done!")
 
+    logger.info("Creating secondary indexes...")
+    index_manager = IndexManager(db_service)
+
+    index_definitions = {
+        "checkins": [
+            ("idx_checkin_userid_timestamp", ["userId", "timestamp"]),
+            ("idx_checkin_userid_venueid_timestamp", ["userId", "venue.id", "timestamp"]),
+            ("idx_checkin_timestamp_venueid_userid", ["timestamp", "venue.id", "userId"])
+        ]
+    }
+
+    with console.status("[white]Waiting for indexes...[/]",
+                        spinner="material", spinner_style="white"):
+        index_manager.create_indexes(index_definitions)
+
+    logger.info("All indexes are built.")
     db_service.close()
 
 
