@@ -1,0 +1,37 @@
+services:
+  couchbase:
+    image: couchbase:community
+    container_name: couchbase
+    ports:
+      - "8091-8096:8091-8096"
+      - "11210:11210"
+    volumes:
+      - couchbase_data:/opt/couchbase/var
+    environment:
+      - COUCHBASE_ADMINISTRATOR_USERNAME=administrator
+      - COUCHBASE_ADMINISTRATOR_PASSWORD=administrator
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8091/pools/default -u administrator:administrator"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  foursquare-app:
+    tty: true
+    stdin_open: true
+    build:
+      context: .
+    container_name: foursquare-app
+    depends_on:
+      couchbase:
+        condition: service_healthy
+    working_dir: /app
+    command: python -m main
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DB_HOST=couchbase
+
+volumes:
+  couchbase_data:
