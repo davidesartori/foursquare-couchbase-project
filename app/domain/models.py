@@ -33,7 +33,7 @@ class Venue(BaseModel):
     """Represents a venue where users can check in."""
     id: str
     name: str
-    category: VenueCategory
+    category: List[VenueCategory]
     location: Location
     country: Country
 

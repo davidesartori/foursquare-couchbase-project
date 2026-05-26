@@ -11,12 +11,17 @@ class VenueRepository:
     def upsert(self, venue: Venue):
         """Insert a new venue document or update an existing one.
         """
+
+        categories = [
+            category.model_dump(exclude_none=True)
+            for category in venue.category]
+
         self.collection.upsert(
             f"venue::{venue.id}",
             {
                 "id": venue.id,
                 "name": venue.name,
-                "category": venue.category.model_dump(exclude_none=True),
+                "category": categories,
                 "location": venue.location.model_dump(exclude_none=True),
                 "country": venue.country.model_dump(exclude_none=True)
             }

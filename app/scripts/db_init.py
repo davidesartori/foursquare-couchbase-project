@@ -65,8 +65,8 @@ def process_checkins(path, checkins_dict, user_dict, venue_dict):
                 venue_instance = venue_dict[venue_id]
             else:
                 venue_instance = models.Venue(id="", name="Unknown Venue",
-                                              category=models.VenueCategory(id="unknown",
-                                                                            name="Unknown"),
+                                              category=[models.VenueCategory(id="unknown",
+                                                                            name="Unknown")],
                                               location=models.Location.get_coordinates_list(
                                                   0.0, 0.0),
                                               country=models.Country(code="XX", name="Unknown"))
@@ -102,8 +102,8 @@ def process_venues(path, venue_dict):
                 name=venue_name,
                 location=models.Location.get_coordinates_list(
                     latitude, longitude),
-                category=models.VenueCategory(id="".join(category.lower().split(' ')),
-                                              name=category),
+                category=[models.VenueCategory(id="".join(category.lower().split(' ')),
+                                              name=category)],
                 country=models.Country(code=country, name=country))
 
             venue_dict[venue_name] = venue_instance
